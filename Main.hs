@@ -9,9 +9,10 @@ import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import qualified Network.WebSockets as WS
 
-type Client = (Text, WS.Connection)
+import Network.WebSockets
+
+type Client = (Text, Connection)
 
 type ServerState = ([Client], Int)
 
@@ -29,18 +30,18 @@ broadcast :: Text -> ServerState -> IO ()
 broadcast message clients = do
     T.putStrLn message
     let hits = show (snd clients)
-    forM_ (fst clients) $ \(_, conn) -> WS.sendTextData conn (T.pack hits)
+    forM_ (fst clients) $ \(_, conn) -> sendTextData conn (T.pack hits)
 
 main :: IO ()
 main = do
     state <- newMVar newServerState
     putStrLn "Starting server on ws://0.0.0.0:9160"
-    WS.runServer "0.0.0.0" 9160 $ application state
+    runServer "0.0.0.0" 9160 $ application state
 
-application :: MVar ServerState -> WS.ServerApp
+application :: MVar ServerState -> ServerApp
 application state pending = do
-    conn <- WS.acceptRequest pending
-    WS.forkPingThread conn 30
+    conn <- acceptRequest pending
+    forkPingThread conn 30
 
     putStrLn "Accepted connection"
 
@@ -62,9 +63,9 @@ application state pending = do
          -- enter an infinite loop until the client disconnects
          talk conn state client
 
-talk :: WS.Connection -> MVar ServerState -> Client -> IO ()
+talk :: Connection -> MVar ServerState -> Client -> IO ()
 talk connection state (user, _) = forever $ do
-    commandMsg <- WS.receiveDataMessage connection
+    commandMsg <- receiveDataMessage connection
     -- print out anything the client sends to us (shouldn't ever send anything, but, well...)
     print commandMsg
 
