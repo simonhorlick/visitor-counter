@@ -32,8 +32,8 @@ broadcast message clients =
 
 application :: MVar ServerState -> ServerApp
 application state pending = do
-  conn <- acceptRequest pending
-  forkPingThread conn 30
+  connection <- acceptRequest pending
+  forkPingThread connection 30
 
   putStrLn "Accepted connection"
 
@@ -41,26 +41,23 @@ application state pending = do
 
   let
     clientId = snd clients
-    client = (clientId, conn)
+    client = (clientId, connection)
     -- Remove client and return new state
     disconnect = modifyMVar state $ \s ->
       let s' = removeClient client s in return (s', s')
 
   flip finally disconnect $ do
     liftIO $ modifyMVar_ state $ \s -> do
-        -- add the client to the connected clients list
-        let s' = addClient client s
-        -- broadcast the updated number of hits to all connected clients
-        broadcast (pack (show (snd s'))) (fst s')
-        return s'
+      -- add the client to the connected clients list
+      let s' = addClient client s
+      -- broadcast the updated number of hits to all connected clients
+      broadcast (pack (show (snd s'))) (fst s')
+      return s'
     -- enter an infinite loop until the client disconnects
-    talk conn
-
-talk :: Connection -> IO ()
-talk connection = forever $ do
-  commandMsg <- receiveDataMessage connection
-  -- print out anything the client sends to us (shouldn't ever send anything, but, well...)
-  print commandMsg
+    forever $ do
+      commandMsg <- receiveDataMessage connection
+      -- print out anything the client sends to us (shouldn't ever send anything, but, well...)
+      print commandMsg
 
 main :: IO ()
 main = do
