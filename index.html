@@ -6,19 +6,18 @@
   </head>
 
   <body>
-  <div id="output"></div>
+
+  <p>There have been <span id="views"></span> visitors!!!</p>
+
   <script>
 
-    var output = document.getElementById("output");
+    var views = document.getElementById("views");
 
     function print(message) {
-      var pre = document.createElement("p");
-      pre.style.wordWrap = "break-word";
-      pre.innerHTML = message;
-      output.appendChild(pre);
+      views.innerHTML = message;
     }
 
-    var websocket = new WebSocket("ws://localhost:9160/visit");
+    var websocket = new WebSocket("ws://localhost:9160/index.html");
     websocket.onopen = function(evt) { print("open"); };
     websocket.onclose = function(evt) { print("close"); };
     websocket.onmessage = function(evt) { print(evt.data); };
