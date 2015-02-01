@@ -30,12 +30,12 @@ broadcast :: Text -> [Client] -> IO ()
 broadcast message clients =
   forM_ clients $ \(_, connection) -> sendTextData connection message
 
-application :: MVar ServerState -> ServerApp
-application state pending = do
+handleConnection :: MVar ServerState -> PendingConnection -> IO ()
+handleConnection state pending = do
   connection <- acceptRequest pending
-  forkPingThread connection 30
-
   putStrLn "Accepted connection"
+
+  forkPingThread connection 30
 
   clients <- liftIO $ readMVar state
 
@@ -63,5 +63,5 @@ main :: IO ()
 main = do
   state <- newMVar newServerState
   putStrLn "Starting server on ws://0.0.0.0:9160"
-  runServer "0.0.0.0" 9160 $ application state
+  runServer "0.0.0.0" 9160 $ handleConnection state
 
