@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>visitor-counter</title>
+  </head>
+
+  <body>
+  <div id="output"></div>
+  <script>
+
+    var output = document.getElementById("output");
+
+    function print(message) {
+      var pre = document.createElement("p");
+      pre.style.wordWrap = "break-word";
+      pre.innerHTML = message;
+      output.appendChild(pre);
+    }
+
+    var websocket = new WebSocket("ws://localhost:9160/visit");
+    websocket.onopen = function(evt) { print("open"); };
+    websocket.onclose = function(evt) { print("close"); };
+    websocket.onmessage = function(evt) { print(evt.data); };
+    websocket.onerror = function(evt) { print("error"); };
+  </script>
+  </body>
+
+</html>
