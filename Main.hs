@@ -1,14 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Data.Char (isPunctuation, isSpace)
-import Data.Monoid (mappend)
 import Data.Text (Text)
+
 import Control.Exception (finally)
 import Control.Monad (forM_, forever)
 import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import Control.Monad.IO.Class (liftIO)
+
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 
 import Network.WebSockets
 
@@ -63,10 +62,10 @@ application state pending = do
              broadcast (T.pack (show (snd s'))) (fst s')
              return s'
          -- enter an infinite loop until the client disconnects
-         talk conn state client
+         talk conn
 
-talk :: Connection -> MVar ServerState -> Client -> IO ()
-talk connection state (user, _) = forever $ do
+talk :: Connection -> IO ()
+talk connection = forever $ do
     commandMsg <- receiveDataMessage connection
     -- print out anything the client sends to us (shouldn't ever send anything, but, well...)
     print commandMsg
