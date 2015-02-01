@@ -12,7 +12,9 @@ import qualified Data.Text.IO as T
 
 import Network.WebSockets
 
-type Client = (Text, Connection)
+type ClientId = Int
+
+type Client = (ClientId, Connection)
 
 type ServerState = ([Client], Int)
 
@@ -48,7 +50,8 @@ application state pending = do
     clients <- liftIO $ readMVar state
 
     let
-      client     = (T.pack (show (snd clients)), conn)
+      clientId   = snd clients
+      client     = (clientId, conn)
       -- Remove client and return new state
       disconnect = modifyMVar state $ \s ->
               let s' = removeClient client s in return (s', s')
