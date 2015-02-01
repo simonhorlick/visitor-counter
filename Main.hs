@@ -23,7 +23,7 @@ type Path = String
 type Channel = TChan String
 type NumSubscribers = Integer
 type Channels = TVar (Map.Map Path (Channel, NumSubscribers))
-type Hits = TVar Integer
+type Hits = TVar (Map.Map Path Integer)
 
 -- Lookup the channel for this path (or create one if there are none) then
 -- return it.
@@ -81,9 +81,14 @@ handleConnection channels hits pending = do
 
   -- atomically increment the number of hits
   numhits <- liftIO $ atomically $ do
-    numhits <- readTVar hits
-    writeTVar hits (numhits + 1)
-    return (numhits+1)
+    hitmap <- readTVar hits
+    case Map.lookup path hitmap of
+      Just numhits -> do
+        modifyTVar' hits $ Map.insert path (numhits + 1)
+        return (numhits+1)
+      Nothing -> do
+        modifyTVar' hits $ Map.insert path 1
+        return 1
 
   -- create a channel for this subscriber
   chan <- addSubscriber channels path
@@ -110,7 +115,7 @@ newChannels :: IO Channels
 newChannels = atomically $ newTVar Map.empty
 
 newHits :: IO Hits
-newHits = atomically $ newTVar 0
+newHits = atomically $ newTVar Map.empty
 
 main :: IO ()
 main = do
