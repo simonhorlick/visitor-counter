@@ -1,67 +1,121 @@
+-- Thanks to http://www.blaenkdenum.com/posts/live-editing-with-hakyll/#websocket-server
+-- which I heavily copied for this.
+
 {-# LANGUAGE OverloadedStrings #-}
 
-import Control.Exception (finally)
-import Control.Monad (forM_, forever)
-import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
+import qualified Data.Map as Map
+
+import Control.Exception (fromException, handle)
+import Control.Monad (forever, void)
+import Control.Monad.STM
+import Control.Concurrent
+import Control.Concurrent.STM.TChan
+import Control.Concurrent.STM.TVar
 import Control.Monad.IO.Class (liftIO)
 
-import Data.Text (Text, pack)
+import Data.Text (pack)
+import qualified Data.ByteString.Char8 as BC
 
 import Network.WebSockets
 
-type ClientId = Int
-type Client = (ClientId, Connection)
-type ServerState = ([Client], Int)
+-- the websocket server channels
+type Path = String
+type Channel = TChan String
+type NumSubscribers = Integer
+type Channels = TVar (Map.Map Path (Channel, NumSubscribers))
+type Hits = TVar Integer
 
-newServerState :: ServerState
-newServerState = ([], 0)
+-- Lookup the channel for this path (or create one if there are none) then
+-- return it.
+addSubscriber :: Channels -> Path -> IO Channel
+addSubscriber channels path =
+  -- needs to be atomic to avoid race conditions
+  -- between the read and the update
+  liftIO $ atomically $ do
+    chans <- readTVar channels
 
--- A client has connected, return the updated list of clients
-addClient :: Client -> ServerState -> ServerState
-addClient client (clients, hits) = (client : clients, hits+1)
+    case Map.lookup path chans of
+      Just (ch, refcount) -> do
+        modifyTVar' channels $ Map.insert path (ch, refcount + 1)
+        dupTChan ch
+      Nothing -> do
+        ch <- newBroadcastTChan
+        modifyTVar' channels $ Map.insert path (ch, 1)
+        dupTChan ch
 
--- Remove a client from the list
-removeClient :: Client -> ServerState -> ServerState
-removeClient client (clients,hits) =
-  (filter ((/= fst client) . fst) clients, hits)
+-- Remove a subscriber from this path
+removeSubscriber :: Channels -> Path -> IO ()
+removeSubscriber channels path =
+  -- decrement the ref count of the channel
+  -- remove it if no listeners
+  atomically $ do
+    chans <- readTVar channels
+    case Map.lookup path chans of
+      Just (ch, refcount) ->
+        if (refcount - 1) == 0
+          then modifyTVar' channels $ Map.delete path
+          else modifyTVar' channels $ Map.insert path (ch, refcount - 1)
+      Nothing -> return ()
 
--- Send a message to every client in the clients list
-broadcast :: Text -> [Client] -> IO ()
-broadcast message clients =
-  forM_ clients $ \(_, connection) -> sendTextData connection message
+-- Send a message to all clients on this path (or do nothing if there are no
+-- subscribers)
+broadcast :: Channels -> String -> String -> IO ()
+broadcast channels path body =
+  void . forkIO $ atomically $ do
+    chans <- readTVar channels
 
-handleConnection :: MVar ServerState -> PendingConnection -> IO ()
-handleConnection state pending = do
-  connection <- acceptRequest pending
-  putStrLn "Accepted connection"
+    case Map.lookup path chans of
+      Just (ch, _) -> writeTChan ch body
+      Nothing -> return ()
 
-  forkPingThread connection 30
+-- Called when a client initiates a new WebSocket connection
+handleConnection :: Channels -> Hits -> PendingConnection -> IO ()
+handleConnection channels hits pending = do
 
-  clients <- liftIO $ readMVar state
+  let request = pendingRequest pending
+      path    = tail . BC.unpack $ requestPath request
 
-  let
-    clientId = snd clients
-    client = (clientId, connection)
-    -- Remove client and return new state
-    disconnect = modifyMVar state $ \s ->
-      let s' = removeClient client s in return (s', s')
+  conn <- acceptRequest pending
 
-  flip finally disconnect $ do
-    liftIO $ modifyMVar_ state $ \s -> do
-      -- add the client to the connected clients list
-      let s' = addClient client s
-      -- broadcast the updated number of hits to all connected clients
-      broadcast (pack (show (snd s'))) (fst s')
-      return s'
-    -- enter an infinite loop until the client disconnects
-    forever $ do
-      commandMsg <- receiveDataMessage connection
-      -- print out anything the client sends to us (shouldn't ever send anything, but, well...)
-      print commandMsg
+  putStrLn $ "Accepted connection for path /"++path
+
+  -- atomically increment the number of hits
+  numhits <- liftIO $ atomically $ do
+    numhits <- readTVar hits
+    writeTVar hits (numhits + 1)
+    return (numhits+1)
+
+  -- create a channel for this subscriber
+  chan <- addSubscriber channels path
+
+  -- broadcast this new number of page hits to everyone on the channel
+  broadcast channels path (show numhits)
+
+  -- sit here sending all updates from the channel until the client disconnects
+  handle catchDisconnect . forever . liftIO $
+    atomically (readTChan chan) >>= sendTextData conn . pack
+
+  -- reduce the reference count on this channel (not strictly necessary as
+  -- we'll never be in a situation where we try to send messages with zero
+  -- subscribers)
+  removeSubscriber channels path
+
+  where
+    catchDisconnect e =
+      case fromException e of
+        Just ConnectionClosed -> return ()
+        _ -> return ()
+
+newChannels :: IO Channels
+newChannels = atomically $ newTVar Map.empty
+
+newHits :: IO Hits
+newHits = atomically $ newTVar 0
 
 main :: IO ()
 main = do
-  state <- newMVar newServerState
+  state <- newChannels
+  hits <- newHits
   putStrLn "Starting server on ws://0.0.0.0:9160"
-  runServer "0.0.0.0" 9160 $ handleConnection state
+  runServer "0.0.0.0" 9160 $ handleConnection state hits
 
