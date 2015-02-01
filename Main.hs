@@ -3,8 +3,6 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-import qualified Data.Map as Map
-
 import Control.Exception (fromException, handle)
 import Control.Monad (forever, void)
 import Control.Monad.STM
@@ -13,12 +11,18 @@ import Control.Concurrent.STM.TChan
 import Control.Concurrent.STM.TVar
 import Control.Monad.IO.Class (liftIO)
 
+import qualified Data.Map as Map
+
 import Data.Text (pack)
 import qualified Data.ByteString.Char8 as BC
 
 import Network.WebSockets
+import Network.Wai.Handler.Warp
+import Network.Wai.Handler.WebSockets
+import Network.Wai.Middleware.RequestLogger (logStdout)
 
--- the websocket server channels
+import Web.Scotty (file,get,middleware,scottyApp)
+
 type Path = String
 type Channel = TChan String
 type NumSubscribers = Integer
@@ -77,8 +81,6 @@ handleConnection channels hits pending = do
 
   conn <- acceptRequest pending
 
-  putStrLn $ "Accepted connection for path /"++path
-
   -- atomically increment the number of hits
   numhits <- liftIO $ atomically $ do
     hitmap <- readTVar hits
@@ -121,6 +123,17 @@ main :: IO ()
 main = do
   state <- newChannels
   hits <- newHits
-  putStrLn "Starting server on ws://0.0.0.0:9160"
-  runServer "0.0.0.0" 9160 $ handleConnection state hits
+
+  let port = 9160
+  putStrLn $ "Starting server on http://0.0.0.0:" ++ show port ++ " and ws://0.0.0.0:" ++ show port
+
+  routes <- scottyApp $ do
+    middleware logStdout
+    get "/" $ file "index.html"
+
+  let settings = setPort port $ setHost "0.0.0.0" defaultSettings
+
+  -- run the warp server sending any websocket upgrade connections to the
+  -- websocket handler
+  runSettings settings $ websocketsOr defaultConnectionOptions (handleConnection state hits) routes
 

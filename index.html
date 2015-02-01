@@ -17,11 +17,16 @@
       views.innerHTML = message;
     }
 
-    var websocket = new WebSocket("ws://localhost:9160/index.html");
-    websocket.onopen = function(evt) { print("open"); };
-    websocket.onclose = function(evt) { print("close"); };
-    websocket.onmessage = function(evt) { print(evt.data); };
-    websocket.onerror = function(evt) { print("error"); };
+    function makeConnection() {
+      var websocket = new WebSocket("ws://localhost:9160/index.html");
+      websocket.onopen = function(evt) { print("open"); };
+      websocket.onclose = function(evt) { print("close"); };
+      websocket.onmessage = function(evt) { print(evt.data); };
+      websocket.onerror = function(evt) { print("error"); };
+      //setTimeout(makeConnection, 10);
+    }
+
+    makeConnection();
   </script>
   </body>
 
