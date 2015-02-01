@@ -28,11 +28,10 @@ removeClient :: Client -> ServerState -> ServerState
 removeClient client (clients,hits) =
   (filter ((/= fst client) . fst) clients, hits)
 
-broadcast :: Text -> ServerState -> IO ()
-broadcast message clients = do
-    T.putStrLn message
-    let hits = show (snd clients)
-    forM_ (fst clients) $ \(_, conn) -> sendTextData conn (T.pack hits)
+-- Send a message to every client in the clients list
+broadcast :: Text -> [Client] -> IO ()
+broadcast message clients =
+    forM_ clients $ \(_, connection) -> sendTextData connection message
 
 main :: IO ()
 main = do
@@ -60,8 +59,8 @@ application state pending = do
          liftIO $ modifyMVar_ state $ \s -> do
              -- add the client to the connected clients list
              let s' = addClient client s
-             -- broadcast the update number of hits to all connected clients
-             broadcast (T.pack (show (snd s'))) s'
+             -- broadcast the updated number of hits to all connected clients
+             broadcast (T.pack (show (snd s'))) (fst s')
              return s'
          -- enter an infinite loop until the client disconnects
          talk conn state client
